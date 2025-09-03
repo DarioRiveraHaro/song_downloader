@@ -1,3 +1,9 @@
+import os
+import json
+import yt_dlp
+import time
+from tqdm import tqdm
+
 # Prueba rápida de permisos
 test_dir = "/storage/emulated/0/Music/downloaded"
 test_file = os.path.join(test_dir, "test.tmp")
