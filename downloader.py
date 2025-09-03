@@ -39,7 +39,7 @@ def select_playlist(data):
         print("⚠️ Playlist no encontrada.")
         return None
 
-def download_song_url(string, playlist_name, data):
+def download_song_url(url, playlist_name, data):
     if playlist_name not in data:
         print("⚠️ Playlist no válida.")
         return download_song_url
@@ -57,11 +57,14 @@ def download_song_url(string, playlist_name, data):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'noplaylist': True
+        'noplaylist': True,
+        'quiet': False,
+        'no_warnings': False
     }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:        info = ydl.extract_info(string, download=True)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:        
+            info = ydl.extract_info(string, download=True)
             title = info.get("title", "Unknown")
             print(f"🎵 Descargado: {title}")
             data[playlist_name].append(string)
@@ -69,8 +72,44 @@ def download_song_url(string, playlist_name, data):
     except Exception as e:
         print(f"❌ Error: {e}")
 
-def download_song_name(strnig, playlist_name, data):
-    yt_dlp 
+def search_and_download_song(strnig, playlist_name, data):
+    # Funcion para buscar y descargar cancion por nombre
+    print(f"🔍 Buscando: {song_name}")
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'default_search' 'ytsearch1:',
+        'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'noplaylist': True,
+        'quiet': True,
+        'no_warnings': True
+    }
+
+    try:
+        with yt_dlp.YouTubeDl(ydl_opts) as ydl:
+            info = ydl.extract_info(song_name, download=False)
+            if 'entries' in info:
+                video = info['entries'][0]
+                title = video.get('title', 'Unknown')
+                url = video.get('webpage_url', '')
+
+                print(f"✅ Encontrado: {title}")
+                print(f"🌐 URL: {url}")
+
+                confirm = input("¿Descargar esta canción? (s/n): ").strip().lower()
+
+                if confirm == 's':
+                    download_song_url(url, playlist_name, data)
+                else:
+                    print("❌ No se encontró la canción")
+            
+            except Exception as e:
+                print(f"❌ Error en la búsqueda: {e}")
 
 def main():
     data = load_data()
@@ -79,8 +118,9 @@ def main():
         print("\n=== 🎶 Gestor de Playlists CLI ===")
         print("1. Crear playlist")
         print("2. Listar playlists")
-        print("3. Seleccionar playlist y descargar canción")
-        print("4. Salir")
+        print("3. Descargar canción desde URL")
+        print("4. Buscar y descargar canción por nombre")
+        print("5. Salir")
         
         choice = input("👉 Elige una opción: ").strip()
 
@@ -95,6 +135,11 @@ def main():
                 url = input("URL de YouTube: ").strip()
                 download_song_url(string, playlist, data)
         elif choice == "4":
+            playlist = select_playlist(data)
+            if playlist:
+                song_name = input("Nombre de la cancion a buscar: ").strip()
+                search_and_download_song(song_name, playlist, data)
+        elif choice == "5":
             print("👋 Saliendo...")
             break
         else:
