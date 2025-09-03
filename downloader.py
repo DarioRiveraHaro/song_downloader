@@ -5,7 +5,7 @@ import time
 from tqdm import tqdm
 
 DATA_FILE = "playlists.json"
-DOWNLOAD_DIR = "/storage/emulated/0/Music/downloaded"
+DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Music", "downloaded")
 
 def load_data():
     if not os.path.exists(DATA_FILE):
@@ -101,6 +101,8 @@ def select_playlist(data):
 
 def download_with_progress(url, output_path):
     """Descarga con barra de progreso"""
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_path,
@@ -112,12 +114,14 @@ def download_with_progress(url, output_path):
         'noplaylist': True,
         'quiet': True,
         'no_warnings': True,
-        'progress_hooks': [lambda d: progress_hook(d, output_path)]
+        'progress_hooks': [lambda d: progress_hook(d, output_path)],
+        'nopart': True
     }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.download([url])
+            result = ydl.download([url])
+            return result == 0
     except Exception as e:
         print(f"❌ Error en la descarga: {e}")
         return False
