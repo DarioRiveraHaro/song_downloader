@@ -5,7 +5,7 @@ import time
 from tqdm import tqdm
 
 DATA_FILE = "playlists.json"
-DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "storage", "music")
+DOWNLOAD_DIR = "/storage/emulated/0/Download"
 
 def load_data():
     if not os.path.exists(DATA_FILE):
