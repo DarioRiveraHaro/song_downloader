@@ -1,369 +1,124 @@
 import os
 import json
-import yt_dlp
-import time
-from tqdm import tqdm
+import inquirer
+from yt_dlp import YoutubeDL
 
-DATA_FILE = "playlists.json"
-DOWNLOAD_DIR = "/storage/emulated/0/Download"
+# --- Configuración ---
+# Directorio de descarga apuntando al almacenamiento compartido del teléfono
+DOWNLOAD_FOLDER = os.path.expanduser('~/storage/music/DescargasDeYouTube')
+LOG_FILE = 'downloaded_log.json'
 
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {}
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
+# --- Funciones ---
+
+def create_files_and_folders():
+    """Crea la carpeta de descargas y el archivo de registro si no existen."""
+    if not os.path.exists(DOWNLOAD_FOLDER):
+        os.makedirs(DOWNLOAD_FOLDER)
+        print(f"📂 Carpeta '{DOWNLOAD_FOLDER}' creada en el almacenamiento del teléfono.")
+
+    # El archivo de log se mantiene dentro de la carpeta del script en Termux
+    if not os.path.exists(LOG_FILE):
+        with open(LOG_FILE, 'w') as f:
+            json.dump([], f)
+        print(f"📝 Archivo de registro '{LOG_FILE}' creado.")
+
+def load_downloaded_log():
+    """Carga los IDs de los videos ya descargados desde el archivo de registro."""
+    with open(LOG_FILE, 'r') as f:
         return json.load(f)
 
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+def save_to_downloaded_log(video_id):
+    """Guarda el ID de un video recién descargado en el archivo de registro."""
+    log = load_downloaded_log()
+    if video_id not in log:
+        log.append(video_id)
+        with open(LOG_FILE, 'w') as f:
+            json.dump(log, f, indent=4)
 
-def create_playlist(data, name):
-    if name in data:
-        print("⚠️ Esa playlist ya existe.")
-    else:
-        data[name] = []
-        save_data(data)
-        print(f"✅ Playlist '{name}' creada.")
+def download_audio(url, is_playlist=False):
+    """Descarga el audio de una URL de YouTube (video o playlist)."""
+    downloaded_ids = load_downloaded_log()
 
-def rename_playlist(data, old_name):
-    """Renombrar una playlist existente"""
-    if old_name not in data:
-        print("⚠️ Playlist no encontrada.")
-        return False
-    
-    new_name = input(f"Nuevo nombre para '{old_name}': ").strip()
-    
-    if not new_name:
-        print("❌ El nombre no puede estar vacío.")
-        return False
-    
-    if new_name in data:
-        print("⚠️ Ya existe una playlist con ese nombre.")
-        return False
-    
-    data[new_name] = data.pop(old_name)
-    save_data(data)
-    print(f"✅ Playlist renombrada de '{old_name}' a '{new_name}'.")
-    return True
+    def hook(d):
+        """Función hook para mostrar el estado de la descarga."""
+        if d['status'] == 'finished':
+            print(f"\n✅ Descarga completa: {d['filename']}")
+            video_id = d['info_dict']['id']
+            save_to_downloaded_log(video_id)
+        if d['status'] == 'downloading':
+            # Limpia la línea e imprime el progreso
+            print(f"\rDownloading: {d['_percent_str']} of {d['_total_bytes_str']} at {d['_speed_str']}", end="")
 
-def delete_playlist(data, name):
-    if name not in data:
-        print("⚠️ Playlist no encontrada.")
-        return False
-    
-    print(f"🗑️  Playlist a eliminar: {name}")
-    print(f"📊 Canciones en la playlist: {len(data[name])}")
-
-    delete_files = input("¿Eliminar también los archivos de audio? (s/n): ").strip().lower()
-
-    deleted_count = 0
-    if delete_files == 's':
-        for url in data[name]:
-            try:
-                with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    title = info.get('title', 'Unknown')
-                    filename = f"{title}.mp3"
-                    filepath = os.path.join(DOWNLOAD_DIR, filename)
-
-                    if os.path.exists(filepath):
-                        os.remove(filepath)
-                        deleted_count += 1
-                        print(f"🗑️  Eliminado: {filename}")
-            except:
-                continue
-        print(f"📊 Archivos eliminados: {deleted_count}")
-    
-    del data[name]
-    save_data(data)
-    print(f"✅ Playlist '{name}' eliminada.")
-    return True
-
-def list_playlists(data):
-    if not data:
-        print("No hay playlists aún.")
-    else:
-        print("\n📋 Playlists disponibles:")
-        for i, (name, songs) in enumerate(data.items(), 1):
-            print(f"{i}. {name} ({len(songs)} canciones)")
-
-def select_playlist(data):
-    list_playlists(data)
-    if not data:
-        return None
-        
-    name = input("👉 Elige el nombre de la playlist: ").strip()
-    if name in data:
-        return name
-    else:
-        print("⚠️ Playlist no encontrada.")
-        return None
-
-def download_with_progress(url, output_path):
-    """Descarga con barra de progreso"""
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': output_path,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True,
-        'progress_hooks': [lambda d: progress_hook(d, output_path)],
-        'nopart': True
-    }
-    
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            result = ydl.download([url])
-            return result == 0
-    except Exception as e:
-        print(f"❌ Error en la descarga: {e}")
-        return False
-
-def progress_hook(d, output_path):
-    """Hook para mostrar progreso de descarga"""
-    if d['status'] == 'downloading':
-        filename = os.path.basename(output_path)
-        if 'total_bytes' in d and d['total_bytes'] > 0:
-            percent = d['downloaded_bytes'] / d['total_bytes'] * 100
-            print(f"📥 {filename}: {percent:.1f}% ({d['downloaded_bytes']}/{d['total_bytes']} bytes)", end='\r')
-        elif 'downloaded_bytes' in d:
-            print(f"📥 {filename}: {d['downloaded_bytes']} bytes descargados", end='\r')
-    elif d['status'] == 'finished':
-        print(f"\n✅ Descarga completada: {os.path.basename(output_path)}")
-
-def download_song_url(url, playlist_name, data, retry_count=0):
-    """Descarga una canción con reintentos"""
-    if playlist_name not in data:
-        print("⚠️ Playlist no válida.")
-        return False
-
-    if url in data[playlist_name]:
-        print("⚠️ Esta canción ya está en la playlist.")
-        return False
-
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    
-    try:
-        # Primero obtener información para el nombre del archivo
-        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-            info = ydl.extract_info(url, download=False)
-            title = info.get("title", "Unknown")
-            output_path = os.path.join(DOWNLOAD_DIR, f"{title}.%(ext)s")
-        
-        # Descargar con barra de progreso
-        success = download_with_progress(url, output_path)
-        
-        if success:
-            data[playlist_name].append(url)
-            save_data(data)
-            print(f"🎵 '{title}' añadida a '{playlist_name}'")
-            return True
-        else:
-            if retry_count < 3:
-                print(f"🔄 Reintentando descarga ({retry_count + 1}/3)...")
-                time.sleep(2)
-                return download_song_url(url, playlist_name, data, retry_count + 1)
-            else:
-                print("❌ Demasiados intentos fallidos. Saltando canción.")
-                return False
-                
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        return False
-
-def download_youtube_playlist(playlist_url, playlist_name, data):
-    """Descargar una playlist completa de YouTube"""
-    print(f"📥 Descargando playlist: {playlist_url}")
-    
-    try:
-        # Obtener información de la playlist
-        ydl_opts = {'quiet': True, 'extract_flat': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            playlist_info = ydl.extract_info(playlist_url, download=False)
-            
-            if 'entries' not in playlist_info:
-                print("❌ No se pudo obtener la playlist.")
-                return False
-            
-            total_songs = len(playlist_info['entries'])
-            print(f"🎵 Encontradas {total_songs} canciones en la playlist")
-            
-            # Crear playlist si no existe
-            if playlist_name not in data:
-                data[playlist_name] = []
-            
-            # Descargar cada canción
-            success_count = 0
-            for i, entry in enumerate(playlist_info['entries'], 1):
-                if 'url' in entry:
-                    print(f"\n📋 [{i}/{total_songs}] Procesando canción...")
-                    if download_song_url(entry['url'], playlist_name, data):
-                        success_count += 1
-            
-            print(f"\n✅ Descarga completada: {success_count}/{total_songs} canciones descargadas")
-            return True
-            
-    except Exception as e:
-        print(f"❌ Error al descargar playlist: {e}")
-        return False
-
-def check_corrupted_files(data):
-    """Verificar archivos corruptos o duplicados"""
-    print("🔍 Verificando archivos...")
-    
-    all_files = {}
-    corrupted_files = []
-    missing_files = []
-    
-    # Recolectar todos los archivos
-    for playlist_name, urls in data.items():
-        for url in urls:
-            try:
-                with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    title = info.get('title', 'Unknown')
-                    filename = f"{title}.mp3"
-                    filepath = os.path.join(DOWNLOAD_DIR, filename)
-                    
-                    # Verificar si el archivo existe
-                    if not os.path.exists(filepath):
-                        missing_files.append((filename, playlist_name))
-                    else:
-                        # Verificar duplicados
-                        if filename in all_files:
-                            all_files[filename].append(playlist_name)
-                        else:
-                            all_files[filename] = [playlist_name]
-                            
-                        # Verificar si el archivo está corrupto (tamaño muy pequeño)
-                        if os.path.getsize(filepath) < 1024:  # Menos de 1KB
-                            corrupted_files.append((filename, playlist_name))
-                            
-            except Exception as e:
-                print(f"⚠️ Error verificando {url}: {e}")
-    
-    # Mostrar resultados
-    if missing_files:
-        print("\n❌ Archivos faltantes:")
-        for filename, playlist in missing_files:
-            print(f"   - {filename} (en {playlist})")
-    
-    if corrupted_files:
-        print("\n❌ Archivos corruptos (tamaño muy pequeño):")
-        for filename, playlist in corrupted_files:
-            print(f"   - {filename} (en {playlist})")
-    
-    duplicates = {f: p for f, p in all_files.items() if len(p) > 1}
-    if duplicates:
-        print("\n⚠️ Archivos duplicados en múltiples playlists:")
-        for filename, playlists in duplicates.items():
-            print(f"   - {filename}: {', '.join(playlists)}")
-    
-    if not missing_files and not corrupted_files and not duplicates:
-        print("✅ Todos los archivos están en buen estado y sin duplicados.")
-    
-    return len(missing_files) + len(corrupted_files)
-
-def search_and_download_song(song_name, playlist_name, data):
-    print(f"🔍 Buscando: {song_name}")
-
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'default_search': 'ytsearch1:',
-        'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True
+        'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
+        'progress_hooks': [hook],
+        'ignoreerrors': True,  # Continúa si un video de la playlist falla
+        'download_archive': LOG_FILE
     }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(song_name, download=False)
-            if 'entries' in info:
-                video = info['entries'][0]
-                title = video.get('title', 'Unknown')
-                url = video.get('webpage_url', '')
-
-                print(f"✅ Encontrado: {title}")
-                print(f"🌐 URL: {url}")
-
-                confirm = input("¿Descargar esta canción? (s/n): ").strip().lower()
-                if confirm == 's':
-                    download_song_url(url, playlist_name, data)
-            else:
-                print("❌ No se encontró la canción")
+    with YoutubeDL(ydl_opts) as ydl:
+        try:
+            info_dict = ydl.extract_info(url, download=False)
             
-    except Exception as e:
-        print(f"❌ Error en la búsqueda: {e}")
+            if is_playlist and 'entries' in info_dict:
+                print(f"\n🎧 Descargando playlist: {info_dict.get('title')}")
+                for video in info_dict['entries']:
+                    if video and video.get('id') in downloaded_ids:
+                        print(f"\n⏭️  Saltando (ya descargado): {video.get('title')}")
+                        continue
+                    if video:
+                        ydl.download([video['webpage_url']])
 
-def main():
-    data = load_data()
+            elif not is_playlist:
+                video_id = info_dict.get('id')
+                if video_id in downloaded_ids:
+                    print(f"\n🤔 '{info_dict.get('title')}' ya fue descargado. Saltando.")
+                    return
+                print(f"\n🎵 Descargando: {info_dict.get('title')}")
+                ydl.download([url])
 
+        except Exception as e:
+            print(f"\n❌ Ocurrió un error: {e}")
+
+def main_menu():
+    """Muestra el menú principal y maneja la selección del usuario."""
     while True:
-        print("\n=== 🎶 Gestor de Playlists CLI ===")
-        print("1. Crear playlist")
-        print("2. Listar playlists")
-        print("3. Descargar canción desde URL")
-        print("4. Buscar y descargar canción por nombre")
-        print("5. Descargar playlist completa de YouTube")
-        print("6. Renombrar playlist")
-        print("7. Verificar archivos")
-        print("8. Borrar playlist")
-        print("9. Salir")
-        
-        choice = input("👉 Elige una opción: ").strip()
+        questions = [
+            inquirer.List('choice',
+                          message="🎶 ¿Qué te gustaría hacer?",
+                          choices=['Descargar una sola canción', 'Descargar una playlist', 'Salir'],
+                          ),
+        ]
+        choice = inquirer.prompt(questions)['choice']
 
-        if choice == "1":
-            name = input("Nombre de la playlist: ").strip()
-            create_playlist(data, name)
-        elif choice == "2":
-            list_playlists(data)
-        elif choice == "3":
-            playlist = select_playlist(data)
-            if playlist:
-                url = input("URL de YouTube: ").strip()
-                download_song_url(url, playlist, data)
-        elif choice == "4":
-            playlist = select_playlist(data)
-            if playlist:
-                song_name = input("Nombre de la canción a buscar: ").strip()
-                search_and_download_song(song_name, playlist, data)
-        elif choice == "5":
-            playlist_name = input("Nombre para la nueva playlist: ").strip()
-            if playlist_name:
-                playlist_url = input("URL de la playlist de YouTube: ").strip()
-                download_youtube_playlist(playlist_url, playlist_name, data)
-        elif choice == "6":
-            playlist = select_playlist(data)
-            if playlist:
-                rename_playlist(data, playlist)
-        elif choice == "7":
-            check_corrupted_files(data)
-        elif choice == "8":
-            playlist = select_playlist(data)
-            if playlist:
-                confirm = input(f"¿Estás seguro de borrar la playlist '{playlist}'? (s/n): ").strip().lower()
-                if confirm == 's':
-                    delete_playlist(data, playlist)
-                else:
-                    print("❌ Operación cancelada.")
-        elif choice == "9":
-            print("👋 Saliendo...")
+        if choice == 'Descargar una sola canción':
+            url = input("🔗 Pega el link del video de YouTube: ")
+            if url:
+                download_audio(url)
+        elif choice == 'Descargar una playlist':
+            url = input("🔗 Pega el link de la playlist de YouTube: ")
+            if url:
+                download_audio(url, is_playlist=True)
+        elif choice == 'Salir':
+            print("👋 ¡Hasta luego!")
             break
-        else:
-            print("⚠️ Opción no válida.")
+        
+        input("\nPresiona Enter para volver al menú...")
+        os.system('clear')
 
+# --- Inicio del Script ---
 if __name__ == "__main__":
-    main()
+    os.system('clear')
+    print("==========================================")
+    print("    🎵 YouTube Music Downloader 🎵")
+    print("==========================================")
+    create_files_and_folders()
+    main_menu()
+
