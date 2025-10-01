@@ -5,7 +5,7 @@ from yt_dlp import YoutubeDL
 
 # --- Configuración ---
 # Directorio de descarga apuntando al almacenamiento compartido del teléfono
-DOWNLOAD_FOLDER = os.path.expanduser('~/storage/music/DescargasDeYouTube')
+DOWNLOAD_FOLDER = os.path.expanduser('~/storage/music/emo')
 LOG_FILE = 'downloaded_log.json'
 
 # --- Funciones ---
@@ -93,7 +93,7 @@ def main_menu():
         questions = [
             inquirer.List('choice',
                           message="🎶 ¿Qué te gustaría hacer?",
-                          choices=['Descargar una sola canción', 'Descargar una playlist', 'Salir'],
+                          choices=['Descargar una sola canción por url', 'Descargar una sola cancion por nombre','Descargar una playlist', 'Salir'],
                           ),
         ]
         choice = inquirer.prompt(questions)['choice']
@@ -102,6 +102,10 @@ def main_menu():
             url = input("🔗 Pega el link del video de YouTube: ")
             if url:
                 download_audio(url)
+        elif choice == 'Descargar una sola cancion por nombre':
+            url = input("Ingresa el nombre dee la cancion: ")
+            if url:
+                
         elif choice == 'Descargar una playlist':
             url = input("🔗 Pega el link de la playlist de YouTube: ")
             if url:
